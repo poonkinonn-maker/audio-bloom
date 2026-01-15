@@ -3,407 +3,529 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audio Bloom - Web Audio Visualizer</title>
+    <title>Sonic Engine - Pro Visualizer</title>
     <style>
-        /* --- CSS 样式 --- */
+        /* --- 沉浸式 UI 设计 --- */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+
         :root {
-            --primary-color: #00f2ff;
-            --bg-overlay: rgba(0, 0, 0, 0.3);
+            --accent: #00f3ff;
+            --panel-bg: rgba(18, 18, 24, 0.75);
+            --text-main: #ffffff;
+            --text-sub: #a0a0b0;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        
-        body {
-            width: 100vw;
-            height: 100vh;
-            overflow: hidden;
-            background-color: #111;
-            font-family: 'Segoe UI', sans-serif;
-            color: white;
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background: #000;
+            font-family: 'Inter', sans-serif;
+            user-select: none;
         }
 
-        /* 背景层 */
-        #bg-container {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 0;
-            overflow: hidden;
-        }
+        /* 层级管理 */
+        #layer-bg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; overflow: hidden; }
+        #layer-vignette { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; background: radial-gradient(circle, transparent 40%, #000 100%); pointer-events: none; }
+        #layer-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; }
+        #layer-ui { position: absolute; z-index: 10; pointer-events: none; width: 100%; height: 100%; }
+
+        /* 背景媒体 */
         #bg-media {
-            width: 100%; height: 100%;
-            object-fit: cover;
-            transition: filter 0.3s, opacity 0.3s;
+            width: 100%; height: 100%; object-fit: cover;
+            transform: scale(1.05); /* 预留缩放空间 */
+            transition: filter 0.2s ease;
         }
+        
+        /* 启动遮罩 */
+        #overlay-start {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 100;
+            background: rgba(0,0,0,0.9); backdrop-filter: blur(20px);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            transition: opacity 0.6s ease;
+        }
+        .start-btn {
+            padding: 15px 40px; border: 1px solid var(--accent); background: transparent;
+            color: var(--accent); font-size: 1.2rem; letter-spacing: 2px;
+            cursor: pointer; transition: all 0.3s; text-transform: uppercase;
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.2);
+            pointer-events: auto;
+        }
+        .start-btn:hover { background: var(--accent); color: #000; box-shadow: 0 0 30px var(--accent); }
 
-        /* 可视化画布 */
-        canvas {
-            position: absolute;
-            top: 0; left: 0;
-            z-index: 1;
-            width: 100%; height: 100%;
+        /* 控制面板 (仿 Wallpaper Engine 右侧栏) */
+        #settings-panel {
+            position: absolute; right: 0; top: 0; bottom: 0; width: 320px;
+            background: var(--panel-bg); backdrop-filter: blur(15px);
+            border-left: 1px solid rgba(255,255,255,0.08);
+            transform: translateX(320px); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            padding: 20px; box-sizing: border-box; overflow-y: auto; pointer-events: auto;
+            display: flex; flex-direction: column; gap: 20px;
         }
+        #settings-panel.active { transform: translateX(0); }
 
-        /* UI 控制面板 */
-        #ui-layer {
-            position: absolute;
-            z-index: 10;
-            top: 20px; right: 20px;
-            width: 300px;
-            background: rgba(20, 20, 20, 0.7);
-            backdrop-filter: blur(10px);
-            padding: 20px;
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: transform 0.3s ease;
-            max-height: 90vh;
-            overflow-y: auto;
-        }
-        
-        #ui-layer.hidden { transform: translateX(340px); }
-        
-        .control-group { margin-bottom: 15px; }
-        .control-group label { display: block; font-size: 12px; color: #aaa; margin-bottom: 5px; }
-        .control-group input[type="range"] { width: 100%; cursor: pointer; }
-        .control-group select { width: 100%; padding: 5px; background: #333; color: white; border: none; border-radius: 4px; }
-        .btn {
-            background: var(--primary-color); color: #000;
-            border: none; padding: 8px 16px; border-radius: 4px;
-            cursor: pointer; font-weight: bold; width: 100%; margin-top: 5px;
-        }
-        .btn:hover { opacity: 0.9; }
-        
-        /* 开关按钮 */
-        #toggle-ui-btn {
-            position: absolute; top: 20px; right: 20px; z-index: 11;
-            background: rgba(0,0,0,0.5); border: 1px solid #444; color: white;
-            width: 40px; height: 40px; border-radius: 50%; cursor: pointer;
+        /* 触发按钮 */
+        #btn-toggle-settings {
+            position: absolute; top: 20px; right: 20px; pointer-events: auto;
+            width: 40px; height: 40px; border-radius: 50%;
+            background: rgba(255,255,255,0.1); backdrop-filter: blur(5px);
+            border: 1px solid rgba(255,255,255,0.2); color: white;
             display: flex; align-items: center; justify-content: center;
+            cursor: pointer; z-index: 20; transition: all 0.2s;
+        }
+        #btn-toggle-settings:hover { background: rgba(255,255,255,0.2); }
+
+        /* UI 组件样式 */
+        h3 { margin: 0; color: var(--text-main); font-size: 14px; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; margin-bottom: 10px; }
+        .control-item { margin-bottom: 15px; }
+        .control-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-sub); margin-bottom: 6px; }
+        
+        input[type="range"] {
+            -webkit-appearance: none; width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 16px; height: 16px; background: var(--accent); border-radius: 50%; cursor: pointer; box-shadow: 0 0 10px var(--accent);
+        }
+        
+        select {
+            width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.1); padding: 8px; border-radius: 4px; outline: none;
         }
 
-        /* 欢迎/启动 遮罩 */
-        #start-overlay {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85); z-index: 100;
-            display: flex; flex-direction: column;
-            align-items: center; justify-content: center;
-            text-align: center;
+        .file-upload {
+            position: relative; overflow: hidden; display: inline-block; width: 100%;
+            background: rgba(255,255,255,0.05); padding: 10px; text-align: center;
+            border: 1px dashed rgba(255,255,255,0.3); border-radius: 6px; cursor: pointer; color: var(--text-sub); font-size: 12px;
         }
-        #start-overlay h1 { font-size: 3rem; margin-bottom: 10px; background: linear-gradient(to right, #00f2ff, #00ff88); -webkit-background-clip: text; color: transparent; }
-        #start-overlay p { margin-bottom: 30px; color: #ccc; }
-        #start-btn { font-size: 1.2rem; padding: 15px 40px; background: white; color: black; border: none; border-radius: 30px; cursor: pointer; transition: transform 0.2s; }
-        #start-btn:hover { transform: scale(1.05); }
+        .file-upload:hover { border-color: var(--accent); color: var(--accent); }
+        .file-upload input { position: absolute; top:0; left:0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+
+        /* Logo / Clock 区域 */
+        #center-info {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; z-index: 1; pointer-events: none; opacity: 0.8;
+        }
+        #clock { font-size: 4rem; font-weight: 200; letter-spacing: -2px; text-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        #track-info { font-size: 0.9rem; color: var(--accent); text-transform: uppercase; letter-spacing: 3px; margin-top: 5px; }
 
     </style>
 </head>
 <body>
 
-    <!-- 启动页 -->
-    <div id="start-overlay">
-        <h1>AUDIO BLOOM</h1>
-        <p>沉浸式音频可视化动态壁纸</p>
-        <button id="start-btn">开启麦克风权限并体验</button>
+    <!-- 启动层 -->
+    <div id="overlay-start">
+        <h1 style="color:white; font-weight:300; letter-spacing:5px; margin-bottom:30px;">SONIC ENGINE</h1>
+        <button class="start-btn" onclick="app.init()">INITIALIZE SYSTEM</button>
     </div>
 
     <!-- 背景层 -->
-    <div id="bg-container">
-        <!-- 默认是一个纯色或渐变，JS会动态插入 Video 或 Img -->
-        <video id="bg-media" playsinline loop muted style="display:none"></video>
-        <div id="bg-placeholder" style="width:100%; height:100%; background: radial-gradient(circle, #1a1a2e 0%, #16213e 100%);"></div>
+    <div id="layer-bg">
+        <video id="bg-media" loop muted playsinline autoplay></video>
+        <div id="bg-placeholder" style="width:100%; height:100%; background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);"></div>
     </div>
+    
+    <!-- 暗角层 (Vignette) -->
+    <div id="layer-vignette"></div>
 
-    <!-- 绘图层 -->
-    <canvas id="visualizer"></canvas>
+    <!-- 核心画布 -->
+    <canvas id="layer-canvas"></canvas>
 
-    <!-- UI 开关 -->
-    <button id="toggle-ui-btn">⚙️</button>
-
-    <!-- 设置面板 -->
-    <div id="ui-layer">
-        <h3 style="margin-bottom:15px; border-bottom:1px solid #444; padding-bottom:10px;">设置面板</h3>
-        
-        <div class="control-group">
-            <label>可视化模式</label>
-            <select id="viz-mode">
-                <option value="bars">经典频谱 (Bars)</option>
-                <option value="circle">环形律动 (Circle)</option>
-                <option value="wave">纯净音波 (Wave)</option>
-            </select>
+    <!-- UI 层 -->
+    <div id="layer-ui">
+        <div id="center-info">
+            <div id="clock">00:00</div>
+            <div id="track-info">AUDIO VISUALIZER</div>
         </div>
 
-        <div class="control-group">
-            <label>位置布局</label>
-            <select id="viz-pos">
-                <option value="bottom">底部居中</option>
-                <option value="center">屏幕正中</option>
-                <option value="top">顶部居中</option>
-            </select>
-        </div>
+        <button id="btn-toggle-settings">⚙️</button>
 
-        <div class="control-group">
-            <label>灵敏度 (Sensitivity)</label>
-            <input type="range" id="sensitivity" min="0.5" max="3.0" step="0.1" value="1.5">
-        </div>
-
-        <div class="control-group">
-            <label>颜色 (Hue)</label>
-            <input type="range" id="color-hue" min="0" max="360" step="1" value="180">
-        </div>
-
-        <hr style="border: 0; border-top: 1px solid #444; margin: 15px 0;">
-        
-        <div class="control-group">
-            <label>更换背景 (图片/视频)</label>
-            <input type="file" id="bg-upload" accept="image/*,video/*" style="font-size: 10px;">
-        </div>
-
-        <div class="control-group">
-            <label>背景模糊</label>
-            <input type="range" id="bg-blur" min="0" max="20" step="1" value="0">
-        </div>
-        
-        <div class="control-group">
-            <label>背景亮度</label>
-            <input type="range" id="bg-brightness" min="0" max="100" step="1" value="50">
-        </div>
-    </div>
-
-    <!-- 核心逻辑 -->
-    <script>
-        // --- 1. 全局配置与状态 ---
-        const config = {
-            mode: 'bars', // bars, circle, wave
-            position: 'bottom', // center, bottom, top
-            sensitivity: 1.5,
-            hue: 180,
-            smoothing: 0.8,
-            bgBlur: 0,
-            bgBrightness: 0.5
-        };
-
-        let audioCtx, analyser, source;
-        let dataArray, bufferLength;
-        let isRunning = false;
-        
-        const canvas = document.getElementById('visualizer');
-        const ctx = canvas.getContext('2d');
-        
-        // --- 2. 初始化音频 ---
-        async function initAudio() {
-            try {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                analyser = audioCtx.createAnalyser();
-                analyser.fftSize = 2048; // 较高的分辨率
-                analyser.smoothingTimeConstant = config.smoothing;
-
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                source = audioCtx.createMediaStreamSource(stream);
-                source.connect(analyser);
-
-                bufferLength = analyser.frequencyBinCount;
-                dataArray = new Uint8Array(bufferLength);
-
-                isRunning = true;
-                document.getElementById('start-overlay').style.opacity = '0';
-                setTimeout(() => document.getElementById('start-overlay').remove(), 500);
-                
-                resizeCanvas();
-                animate();
-            } catch (err) {
-                alert("无法获取麦克风权限，请确保在 HTTPS 环境或本地 localhost 运行。\n错误: " + err);
-            }
-        }
-
-        // --- 3. 渲染循环 (核心动画) ---
-        function animate() {
-            if (!isRunning) return;
-            requestAnimationFrame(animate);
-
-            // 获取数据
-            if (config.mode === 'wave') {
-                analyser.getByteTimeDomainData(dataArray);
-            } else {
-                analyser.getByteFrequencyData(dataArray);
-            }
-
-            // 清空画布
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // 计算低音能量 (用于背景/整体震动效果)
-            let bassTotal = 0;
-            for(let i=0; i<40; i++) bassTotal += dataArray[i];
-            const bassLevel = (bassTotal / 40) / 255; 
-
-            // 绘制逻辑分发
-            ctx.save();
-            applyLayoutTransform();
-
-            if (config.mode === 'bars') drawBars(bassLevel);
-            else if (config.mode === 'circle') drawCircle(bassLevel);
-            else if (config.mode === 'wave') drawWave(bassLevel);
-
-            ctx.restore();
-        }
-
-        // --- 4. 可视化绘制算法 ---
-
-        // 布局变换
-        function applyLayoutTransform() {
-            if (config.mode === 'circle') {
-                // 圆形模式通常居中最好看
-                ctx.translate(canvas.width / 2, canvas.height / 2);
-                return;
-            }
-
-            if (config.position === 'center') {
-                ctx.translate(0, canvas.height / 2);
-            } else if (config.position === 'bottom') {
-                ctx.translate(0, canvas.height - 50);
-            } else if (config.position === 'top') {
-                ctx.translate(0, 150);
-            }
-        }
-
-        // 样式 A: 频谱柱状图 (Spectrum Bars)
-        function drawBars(bassLevel) {
-            const barCount = 100; // 显示的柱子数量
-            const step = Math.floor(bufferLength / barCount);
-            const barWidth = (canvas.width / barCount);
+        <div id="settings-panel">
+            <h3>Visual Style</h3>
+            <div class="control-item">
+                <div class="control-label"><span>Mode</span></div>
+                <select id="opt-mode" onchange="app.config.mode = this.value">
+                    <option value="circle">Cyber Ring (环形)</option>
+                    <option value="line">Neon Horizon (地平线)</option>
+                    <option value="wave">Fluid Wave (流体)</option>
+                </select>
+            </div>
             
-            // 居中起始
-            let x = 0;
+            <div class="control-item">
+                <div class="control-label"><span>Color Scheme</span></div>
+                <select id="opt-color" onchange="app.setTheme(this.value)">
+                    <option value="cyan">Cyber Cyan</option>
+                    <option value="fire">Hell Fire</option>
+                    <option value="purple">Neon Eva</option>
+                    <option value="gold">Luxury Gold</option>
+                    <option value="rgb">RGB Gamer</option>
+                </select>
+            </div>
 
-            for (let i = 0; i < barCount; i++) {
-                // 简单的平滑/取样
-                let value = dataArray[i * step];
+            <div class="control-item">
+                <div class="control-label"><span>Glow Strength (光晕)</span></div>
+                <input type="range" min="0" max="50" value="20" oninput="app.config.glow = this.value">
+            </div>
+
+            <h3>Reactivity</h3>
+            <div class="control-item">
+                <div class="control-label"><span>Sensitivity (灵敏度)</span></div>
+                <input type="range" min="0.5" max="3" step="0.1" value="1.5" oninput="app.config.sensitivity = this.value">
+            </div>
+            <div class="control-item">
+                <div class="control-label"><span>Background Pulse (背景震动)</span></div>
+                <input type="range" min="0" max="1" step="0.1" value="0.5" oninput="app.config.bgPulse = this.value">
+            </div>
+             <div class="control-item">
+                <div class="control-label"><span>Particles (粒子数量)</span></div>
+                <input type="range" min="0" max="200" step="10" value="100" oninput="app.config.particleCount = parseInt(this.value)">
+            </div>
+
+            <h3>Background</h3>
+            <div class="control-item">
+                <div class="file-upload">
+                    <span>📁 Upload Image / Video</span>
+                    <input type="file" accept="image/*,video/*" onchange="app.handleFileUpload(this)">
+                </div>
+            </div>
+            <div class="control-item">
+                <div class="control-label"><span>Blur (模糊)</span></div>
+                <input type="range" min="0" max="30" value="0" oninput="app.updateBgBlur(this.value)">
+            </div>
+            <div class="control-item">
+                <div class="control-label"><span>Brightness (亮度)</span></div>
+                <input type="range" min="0" max="100" value="60" oninput="app.updateBgDim(this.value)">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * SONIC ENGINE - Core Logic
+         * 包含音频分析、粒子系统、高性能渲染管线
+         */
+        const app = {
+            config: {
+                mode: 'circle', // circle, line, wave
+                sensitivity: 1.5,
+                glow: 20,
+                bgPulse: 0.5,
+                particleCount: 100,
+                theme: { h: 180, s: 100, l: 50 }, // HSL
+                isRGB: false
+            },
+            state: {
+                audioCtx: null,
+                analyser: null,
+                dataArray: null,
+                bass: 0,
+                mid: 0,
+                high: 0,
+                isPlaying: false
+            },
+            ui: {
+                canvas: document.getElementById('layer-canvas'),
+                ctx: document.getElementById('layer-canvas').getContext('2d'),
+                bgMedia: document.getElementById('bg-media'),
+                bgPlaceholder: document.getElementById('bg-placeholder'),
+                panel: document.getElementById('settings-panel')
+            },
+            particles: [],
+
+            // 初始化
+            init: async function() {
+                try {
+                    // Audio Setup
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    this.state.audioCtx = new AudioContext();
+                    this.state.analyser = this.state.audioCtx.createAnalyser();
+                    this.state.analyser.fftSize = 2048;
+                    this.state.analyser.smoothingTimeConstant = 0.85; // 更柔和的平滑
+
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    const source = this.state.audioCtx.createMediaStreamSource(stream);
+                    source.connect(this.state.analyser);
+
+                    const bufferLength = this.state.analyser.frequencyBinCount;
+                    this.state.dataArray = new Uint8Array(bufferLength);
+
+                    // UI Cleanup
+                    document.getElementById('overlay-start').style.opacity = 0;
+                    setTimeout(() => document.getElementById('overlay-start').remove(), 600);
+                    this.state.isPlaying = true;
+
+                    // Resize & Events
+                    this.resize();
+                    window.addEventListener('resize', () => this.resize());
+                    this.initClock();
+                    
+                    // Start Loop
+                    this.loop();
+
+                } catch (e) {
+                    alert("麦克风授权失败或浏览器不支持 Web Audio API。\nError: " + e.message);
+                }
+            },
+
+            // 渲染主循环
+            loop: function() {
+                if (!this.state.isPlaying) return;
+                requestAnimationFrame(() => this.loop());
+
+                const { ctx, canvas } = this.ui;
+                const { width, height } = canvas;
+
+                // 1. 获取音频数据
+                this.state.analyser.getByteFrequencyData(this.state.dataArray);
+                this.analyzeAudioFeatures(); // 计算低中高频分量
+
+                // 2. 清除画布 (保留微弱拖尾以形成动态模糊感? 否，这里追求清晰，全清)
+                ctx.clearRect(0, 0, width, height);
+
+                // 3. 应用动态背景效果 (Zoom on Bass)
+                this.applyBackgroundReaction();
+
+                // 4. 绘制粒子
+                this.updateAndDrawParticles();
+
+                // 5. 绘制可视化主体
+                ctx.save();
                 
-                // 应用灵敏度
-                let barHeight = (value * config.sensitivity * (canvas.height / 500)); 
-                if (config.position === 'center') barHeight *= 0.5; // 居中时上下各一半
+                // 设置发光效果
+                ctx.shadowBlur = this.config.glow;
+                ctx.shadowColor = this.getCurrentColor();
+                ctx.strokeStyle = this.getCurrentColor();
+                ctx.fillStyle = this.getCurrentColor();
+                ctx.globalCompositeOperation = 'lighter'; // 关键：颜色叠加变亮
 
-                // 颜色处理 (低频偏红/紫，高频偏蓝/青)
-                const hue = config.hue + (i / barCount) * 60;
-                ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+                if (this.config.mode === 'circle') this.drawCircleViz(width/2, height/2);
+                else if (this.config.mode === 'line') this.drawLineViz(width, height);
+                else if (this.config.mode === 'wave') this.drawFluidWave(width, height);
 
-                // 绘制
-                if (config.position === 'center') {
-                    // 镜像绘制
-                    ctx.fillRect(x, -barHeight, barWidth - 2, barHeight * 2);
-                } else if (config.position === 'top') {
-                    ctx.fillRect(x, 0, barWidth - 2, barHeight);
-                } else {
-                    ctx.fillRect(x, -barHeight, barWidth - 2, barHeight);
+                ctx.restore();
+
+                // RGB 模式下自动变色
+                if (this.config.isRGB) {
+                    this.config.theme.h = (this.config.theme.h + 0.5) % 360;
+                }
+            },
+
+            // 音频特征提取 (简单的分频)
+            analyzeAudioFeatures: function() {
+                const data = this.state.dataArray;
+                const len = data.length;
+                
+                // Bass: 0 ~ 50Hz (Approx first 20 bins)
+                let bassSum = 0;
+                for(let i=0; i<20; i++) bassSum += data[i];
+                this.state.bass = (bassSum / 20) / 255; // 0.0 - 1.0
+
+                // Mid: 
+                let midSum = 0;
+                for(let i=20; i<200; i++) midSum += data[i];
+                this.state.mid = (midSum / 180) / 255;
+            },
+
+            // 背景反应逻辑
+            applyBackgroundReaction: function() {
+                const scale = 1.0 + (this.state.bass * 0.1 * this.config.bgPulse);
+                // 使用 CSS transform 实现高性能缩放
+                this.ui.bgMedia.style.transform = `scale(${Math.max(1.05, 1.05 * scale)})`;
+                this.ui.bgPlaceholder.style.transform = `scale(${Math.max(1.05, 1.05 * scale)})`;
+            },
+
+            // --- 可视化算法 ---
+
+            // 1. Cyber Ring (仿钢铁侠反应堆/光环)
+            drawCircleViz: function(cx, cy) {
+                const { ctx } = this.ui;
+                const radius = Math.min(cx, cy) * 0.4 + (this.state.bass * 50);
+                const bars = 180; // 更多细节
+                const step = Math.floor(this.state.dataArray.length / bars);
+
+                ctx.beginPath();
+                for (let i = 0; i < bars; i++) {
+                    const val = this.state.dataArray[i * step];
+                    const barH = (val * this.config.sensitivity * 0.8) + 2; 
+                    const rad = (i / bars) * Math.PI * 2 - Math.PI/2; // 从顶部开始
+
+                    // 极坐标计算
+                    const x1 = cx + Math.cos(rad) * radius;
+                    const y1 = cy + Math.sin(rad) * radius;
+                    const x2 = cx + Math.cos(rad) * (radius + barH);
+                    const y2 = cy + Math.sin(rad) * (radius + barH);
+
+                    ctx.moveTo(x1, y1);
+                    ctx.lineTo(x2, y2);
+                }
+                ctx.lineWidth = 2;
+                ctx.lineCap = 'round';
+                ctx.stroke();
+
+                // 内圈装饰线
+                ctx.beginPath();
+                ctx.arc(cx, cy, radius - 10, 0, Math.PI*2);
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+                ctx.stroke();
+            },
+
+            // 2. Neon Horizon (经典柱状 + 镜像)
+            drawLineViz: function(w, h) {
+                const { ctx } = this.ui;
+                const bars = 128;
+                const barW = w / bars;
+                
+                for (let i = 0; i < bars; i++) {
+                    const val = this.state.dataArray[i * 4]; // 采样稍微稀疏一点
+                    const barH = val * this.config.sensitivity * (h/400) * 100;
+                    
+                    const x = i * barW;
+                    const centerY = h - 100;
+
+                    // 绘制矩形
+                    ctx.fillRect(x, centerY - barH, barW - 1, barH);
+                    
+                    // 倒影 (透明度降低)
+                    ctx.fillStyle = this.getCurrentColor(0.3);
+                    ctx.fillRect(x, centerY, barW - 1, barH * 0.5);
+                    ctx.fillStyle = this.getCurrentColor(1); // 恢复
+                }
+            },
+
+            // 3. Fluid Wave (正弦波叠加)
+            drawFluidWave: function(w, h) {
+                const { ctx } = this.ui;
+                ctx.beginPath();
+                ctx.lineWidth = 3;
+                
+                const sliceW = w / this.state.dataArray.length;
+                let x = 0;
+                
+                // 为了平滑，我们画三条线
+                for (let j = 1; j <= 3; j++) {
+                    ctx.beginPath();
+                    let offset = j * 50; // 偏移
+                    ctx.strokeStyle = this.getCurrentColor(1.0 - (j*0.2)); // 渐隐
+
+                    for(let i = 0; i < this.state.dataArray.length; i += 10) {
+                        const v = this.state.dataArray[i] / 128.0;
+                        const y = (h/2) + Math.sin(i/20 + Date.now()/1000 * j) * (v * 100 * this.config.sensitivity);
+                        
+                        if(i===0) ctx.moveTo(x, y);
+                        else ctx.lineTo(i * sliceW * 10, y);
+                    }
+                    ctx.stroke();
+                }
+            },
+
+            // --- 粒子系统 ---
+            updateAndDrawParticles: function() {
+                const { ctx, canvas } = this.ui;
+                const cx = canvas.width / 2;
+                const cy = canvas.height / 2;
+
+                // 1. 如果低音强劲，发射新粒子
+                if (this.state.bass > 0.7 && this.particles.length < this.config.particleCount) {
+                    for(let k=0; k<5; k++) {
+                        this.particles.push({
+                            x: cx, y: cy,
+                            vx: (Math.random() - 0.5) * 10,
+                            vy: (Math.random() - 0.5) * 10,
+                            life: 1.0,
+                            size: Math.random() * 3 + 1
+                        });
+                    }
                 }
 
-                x += barWidth;
-            }
-        }
+                // 2. 更新并绘制
+                for (let i = this.particles.length - 1; i >= 0; i--) {
+                    let p = this.particles[i];
+                    
+                    // 物理移动
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.life -= 0.02; // 衰减
+                    
+                    if (p.life <= 0) {
+                        this.particles.splice(i, 1);
+                        continue;
+                    }
 
-        // 样式 B: 环形律动 (Circular)
-        function drawCircle(bassLevel) {
-            const radius = 100 + (bassLevel * 50 * config.sensitivity);
-            const bars = 120;
-            const step = Math.floor(bufferLength / bars);
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+                    // 粒子颜色偏白，带有主色调光晕
+                    ctx.fillStyle = `rgba(255, 255, 255, ${p.life})`;
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = this.getCurrentColor();
+                    ctx.fill();
+                }
+            },
 
-            ctx.beginPath();
-            for (let i = 0; i < bars; i++) {
-                const value = dataArray[i * step];
-                const barHeight = value * config.sensitivity * 0.8;
-                
-                const rad = (i / bars) * Math.PI * 2;
-                
-                // 极坐标转换
-                const x1 = Math.cos(rad) * radius;
-                const y1 = Math.sin(rad) * radius;
-                const x2 = Math.cos(rad) * (radius + barHeight);
-                const y2 = Math.sin(rad) * (radius + barHeight);
-
-                ctx.strokeStyle = `hsl(${config.hue + (i/bars)*120}, 80%, 60%)`;
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.moveTo(x1, y1);
-                ctx.lineTo(x2, y2);
-                ctx.stroke();
-            }
-        }
-
-        // 样式 C: 纯净音波 (Waveform)
-        function drawWave(bassLevel) {
-            ctx.lineWidth = 3;
-            ctx.strokeStyle = `hsl(${config.hue}, 100%, 70%)`;
-            ctx.beginPath();
-
-            const sliceWidth = canvas.width / bufferLength;
-            let x = 0;
-
-            for (let i = 0; i < bufferLength; i++) {
-                const v = dataArray[i] / 128.0;
-                // 放大波幅
-                const y = v * (canvas.height / 4) * config.sensitivity - (canvas.height/4 * config.sensitivity);
-
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-
-                x += sliceWidth;
-            }
-            ctx.stroke();
-        }
-
-        // --- 5. 辅助功能 (Resize, Background, Events) ---
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
-        window.addEventListener('resize', resizeCanvas);
-
-        // UI 事件绑定
-        document.getElementById('start-btn').addEventListener('click', initAudio);
-        
-        document.getElementById('toggle-ui-btn').addEventListener('click', () => {
-            document.getElementById('ui-layer').classList.toggle('hidden');
-        });
-
-        // 参数调节
-        document.getElementById('viz-mode').addEventListener('change', (e) => config.mode = e.target.value);
-        document.getElementById('viz-pos').addEventListener('change', (e) => config.position = e.target.value);
-        document.getElementById('sensitivity').addEventListener('input', (e) => config.sensitivity = parseFloat(e.target.value));
-        document.getElementById('color-hue').addEventListener('input', (e) => config.hue = parseFloat(e.target.value));
-
-        // 背景处理
-        const bgMedia = document.getElementById('bg-media');
-        const bgPlaceholder = document.getElementById('bg-placeholder');
-        
-        function updateBgStyle() {
-            const filter = `blur(${config.bgBlur}px) brightness(${config.bgBrightness + 50}%)`;
-            bgMedia.style.filter = filter;
-            bgPlaceholder.style.filter = filter;
-        }
-
-        document.getElementById('bg-blur').addEventListener('input', (e) => {
-            config.bgBlur = e.target.value;
-            updateBgStyle();
-        });
-        document.getElementById('bg-brightness').addEventListener('input', (e) => {
-            config.bgBrightness = parseInt(e.target.value) - 50; // map 0-100 to -50 to 50
-            updateBgStyle();
-        });
-
-        // 文件上传处理
-        document.getElementById('bg-upload').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const url = URL.createObjectURL(file);
+            // --- 辅助功能 ---
+            resize: function() {
+                this.ui.canvas.width = window.innerWidth;
+                this.ui.canvas.height = window.innerHeight;
+            },
             
-            if (file.type.startsWith('video')) {
-                bgMedia.src = url;
-                bgMedia.style.display = 'block';
-                bgPlaceholder.style.display = 'none';
-                bgMedia.play();
-            } else if (file.type.startsWith('image')) {
-                bgMedia.style.display = 'none';
-                bgPlaceholder.style.display = 'block';
-                bgPlaceholder.style.background = `url(${url}) no-repeat center center / cover`;
+            getCurrentColor: function(alpha = 1) {
+                const { h, s, l } = this.config.theme;
+                return `hsla(${h}, ${s}%, ${l}%, ${alpha})`;
+            },
+
+            setTheme: function(name) {
+                this.config.isRGB = false;
+                switch(name) {
+                    case 'cyan': this.config.theme = { h: 180, s: 100, l: 50 }; document.documentElement.style.setProperty('--accent', '#00f3ff'); break;
+                    case 'fire': this.config.theme = { h: 10, s: 100, l: 50 }; document.documentElement.style.setProperty('--accent', '#ff4d00'); break;
+                    case 'purple': this.config.theme = { h: 280, s: 100, l: 60 }; document.documentElement.style.setProperty('--accent', '#d500f9'); break;
+                    case 'gold': this.config.theme = { h: 45, s: 100, l: 50 }; document.documentElement.style.setProperty('--accent', '#ffd700'); break;
+                    case 'rgb': this.config.isRGB = true; break;
+                }
+            },
+
+            handleFileUpload: function(input) {
+                const file = input.files[0];
+                if (!file) return;
+                const url = URL.createObjectURL(file);
+                
+                if (file.type.startsWith('video')) {
+                    this.ui.bgPlaceholder.style.display = 'none';
+                    this.ui.bgMedia.style.display = 'block';
+                    this.ui.bgMedia.src = url;
+                    this.ui.bgMedia.play();
+                } else {
+                    this.ui.bgMedia.style.display = 'none';
+                    this.ui.bgPlaceholder.style.display = 'block';
+                    this.ui.bgPlaceholder.style.background = `url(${url}) no-repeat center center / cover`;
+                }
+            },
+
+            updateBgBlur: function(val) {
+                const filter = `blur(${val}px) brightness(${document.querySelector('#settings-panel input[max="100"]').value}%)`;
+                this.ui.bgMedia.style.filter = filter;
+                this.ui.bgPlaceholder.style.filter = filter;
+            },
+            
+            updateBgDim: function(val) {
+                const blurVal = document.querySelector('#settings-panel input[max="30"]').value;
+                const filter = `blur(${blurVal}px) brightness(${val}%)`;
+                this.ui.bgMedia.style.filter = filter;
+                this.ui.bgPlaceholder.style.filter = filter;
+            },
+
+            initClock: function() {
+                const clockEl = document.getElementById('clock');
+                setInterval(() => {
+                    const now = new Date();
+                    const hours = String(now.getHours()).padStart(2, '0');
+                    const minutes = String(now.getMinutes()).padStart(2, '0');
+                    clockEl.innerText = `${hours}:${minutes}`;
+                }, 1000);
             }
+        };
+
+        // UI Toggle
+        const btn = document.getElementById('btn-toggle-settings');
+        const panel = document.getElementById('settings-panel');
+        btn.addEventListener('click', () => {
+            panel.classList.toggle('active');
         });
 
     </script>
